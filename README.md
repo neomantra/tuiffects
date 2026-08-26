@@ -85,21 +85,51 @@ The engine, in the shape ttfx found it:
 | `Clock` | seconds, for the effects written in seconds rather than frames |
 | `Engine` | the stepping loop that ties all of it together |
 
-Four effects, chosen to exercise different parts of that engine and to work
-over a whole screen of arbitrary content rather than over a centred banner:
+Thirty-five effects, every one ttfx ships except `beams` and `colorshift`:
 
 | Effect | What it does | What it shows |
 | --- | --- | --- |
+| `binarypath` | every character breaks into the binary digits of its code point, which travel the canvas and collapse back into it | added characters, right-angled paths, a group released one member a frame, and a two-phase run ending in a diagonal wipe |
+| `blackhole` | the text scatters into a starfield, a ring of stars eats it, then the singularity explodes and it drifts home | five phases, looping ring paths, distance-synced scenes, layers, and a colour ramp on both foreground and background |
+| `bouncyballs` | balls fall in from above the screen and bounce into place | motion that starts off the canvas, a non-monotonic easing on a path, and a row-by-row release from the bottom up |
+| `bubbles` | groups of characters ride a bubble down the screen, which pops and drops them into place | an added anchor character stepped by hand, a rigid ring redrawn around it each frame, and paths chained through a burst |
+| `burn` | fire spreads through the text and each character cools into its colour | a spanning tree as the running order, a recycled particle pool for the smoke, and a background carried through a dynamic run |
+| `crumble` | the text dims, falls to the floor as dust, is vacuumed out the top, then flies home and re-forms | four stages over one shared set of paths and scenes, a distance-synced dust animation, and a layer change mid-fall |
 | `decrypt` | types out ciphertext, then decrypts it | per-character scenes and scene-to-scene chaining, no motion at all |
+| `errorcorrect` | some characters start in each other's places and swap back | a scene handing off to a path and back, layer changes while a character is in flight, and a queue released on a delay |
+| `expand` | the text starts piled on one cell and grows out of it | eased paths out of a single point, distance-synced colour ramps, and layer swaps in flight |
+| `fireworks` | characters climb as shells, burst apart, and fall into place | three chained paths per character, bezier arcs, a looping scene and a step-synced one |
+| `highlight` | a band of light sweeps over the text | an eased sequence releasing character groups, brightness-derived gradients, no motion |
+| `laseretch` | a laser beam cuts the text on, one character at a time | a spanning tree for the etch order, a particle pool for the sparks |
+| `matrix` | green rain falls down the screen and the text resolves out of it | the engine clock, columns cut from the whole canvas including the fill, and drawing by appearance instead of scenes |
+| `middleout` | text collapses onto the centre, spreads along one axis, then expands out | two paths per character run in phases the effect drives itself, and a colour ramp that opens on a fixed starting colour |
+| `orbittingvolley` | four launchers circle the canvas and fire the text into place | one moving character driving three others' positions, layered paths, and a per-frame launch queue |
+| `overflow` | rows of the text scroll up past the screen out of order, then the real picture scrolls in from the bottom | copies of the input as extra characters, whole-canvas row groups, and a scroll that only lands correctly with fill characters |
+| `pour` | characters pour in from one edge and fill the canvas from the near side first | row and column groups released in alternating order, one path and one colour ramp per character |
+| `print` | types the canvas out one line at a time on the bottom row and scrolls the page up under it | a character of its own as the print head, a path rebuilt per line, row groups over the whole canvas, and one scene per cell |
 | `rain` | characters fall in and settle | paths, easing, and a path completion handing off to an animation |
-| `waves` | a band of blocks sweeps across | eased scenes released in bands, a sweep with no motion at all |
+| `randomsequence` | fades the text back in one character at a time, in a random order | a shuffled reveal order, a per-character colour ramp with no motion, paths or events at all |
+| `rings` | text gathers into spinning rings, scatters, and goes home | many chained looping paths per character, phase timers, and rings that turn opposite ways |
+| `scattered` | characters start in random places and gather into the text | paths from random start coordinates, a distance-synced colour ramp, and layer swaps in flight |
+| `slice` | the picture is cut in two and the halves slide back in from opposite edges | eased paths over the fill characters as well as the input, and two halves shearing past each other |
+| `slide` | rows, columns or diagonals push in from off screen | groups released on a gap timer, one character per group per frame, each on its own eased path |
+| `smoke` | smoke seeps out from one cell and colours the text as it passes | a weighted spanning tree, a breadth-first walk of it one layer per frame, scene-to-scene handover |
+| `spotlights` | beams of light search the screen, meet in the middle, then widen until everything is lit | direct appearance changes with no scenes at all, chained looping paths, and a distance-based falloff |
+| `spray` | characters shoot out of one point on the edge and fly into place | per-character path speed, a layer lifted for the flight and dropped on arrival, and a burst release sized by the character count |
+| `swarm` | groups of characters fly between gathering points, then land | grouped characters, chained paths, and one group member pulling the rest along |
+| `sweep` | two bands cross the canvas, the first uncovering the characters in grey and the second colouring them | one eased sequence run twice over different groupings, and fill characters so the whole canvas shimmers |
+| `synthgrid` | a grid draws itself across the screen, fills its blocks in a few at a time, then takes itself back down | added characters on a layer above the text, fill characters, and phases driven by a per-block completion count |
+| `thunderstorm` | the text dims, rain crosses it, and lightning strikes and leaves it glowing | two particle pools, the seconds clock, and characters the effect adds to the terminal itself |
+| `unstable` | the screen scrambles, shakes itself apart, and flies back together | whole-screen coordinate shoves, two eased flights, and a three-phase run |
 | `vhstape` | rows slip and the picture is redrawn | paths driving synced scenes, row groups, and several phases |
+| `waves` | a band of blocks sweeps across | eased scenes released in bands, a sweep with no motion at all |
+| `wipe` | a line crosses the screen and the text appears behind it | an easing curve deciding which character groups are released, and taking them back when it reverses |
 
 ## Adding an effect
 
 Write one file. Implement `Build` (set up scenes and paths on every character)
 and `Advance` (release a few characters, call `engine.Update()`, say whether
-you are done), and call `Register` from an `init`. The four here are 160 to 430
+you are done), and call `Register` from an `init`. The ones here are 160 to 1000
 lines each and the engine does the rest.
 
 [PORTING.md](PORTING.md) is the full guide for bringing one across from ttfx:
@@ -116,15 +146,21 @@ colour policy does, and what a finished port has to include.
   runs to the same number of frames every time. `NewRealClock` is there for a
   host that would rather have wall time.
 * No command line, no tty writer, no resize handling. The host owns the screen.
-* Four effects rather than thirty-five.
+* Thirty-five effects rather than thirty-seven. `beams` and `colorshift` are
+  not ported.
 * Rounding quirks that change how effects look **are** kept: half-to-even
   rounding on coordinates, floor division on gradient channel steps, and the
   bezier arc-length estimate that stops at t=0.9. Removing them would retune
   every effect by a little, silently.
-* A few effects behave differently under `DynamicExistingColors`, because
+* Several effects behave differently under `DynamicExistingColors`, because
   upstream is written for piped text and that mode means the input was already
-  on the screen. Each is commented where it is made, and the default behaviour
-  is unchanged.
+  on the screen. Backgrounds a captured cell carried survive the run rather
+  than blinking out; anything an effect throws across the screen carries the
+  background of the cell it is over rather than punching a hole through it; a
+  ramp that closes on a background starts from that background rather than
+  flushing the bar white first; and an effect whose subject is a colour change
+  is given a neutral foreground to work with on a cell that arrived with none.
+  Each is commented where it is made, and the default behaviour is unchanged.
 
 ## Licence
 

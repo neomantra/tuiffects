@@ -355,3 +355,14 @@ func hueToRGB(lightnessScaled, intensity, hue float64) float64 {
 		return lightnessScaled
 	}
 }
+
+// DynamicNeutralGrey stands in for a character that arrived with no foreground
+// of its own, in the effects that need one to work with under
+// DynamicExistingColors. A captured screen is mostly cells with no explicit
+// foreground, and an effect whose whole subject is a colour change has nothing
+// to change on them: the band passes over and nothing happens.
+//
+// It is a deviation from ttfx, which animates piped text where every character
+// is given a gradient colour and this case never arises. Every use of it is
+// scoped to DynamicExistingColors, so the default behaviour stays upstream's.
+var DynamicNeutralGrey = MustParseColor("808080")

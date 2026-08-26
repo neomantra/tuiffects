@@ -90,3 +90,54 @@ func Run(effect Effect, e *Engine, maxFrames int) ([]string, error) {
 	}
 	return frames, nil
 }
+
+// overInputBackground puts fg on the background the input carried at coord.
+//
+// It exists because upstream animates piped text, where nothing carries a
+// background, so anything an effect throws across the screen, a spark or a
+// raindrop or a puff of smoke or a travelling digit, is drawn as a foreground
+// on nothing. Over a captured screen that is a hole punched straight through
+// whatever it is flying across, moving every frame: a title bar sparkles with
+// gaps for the length of the run. A particle should pass in front of the
+// picture, not through it.
+//
+// It is a no-op outside DynamicExistingColors, so the default behaviour of
+// every effect that calls it stays exactly upstream's. For the usual case, one
+// call covering everything the effect put on the screen itself, use
+// carryAddedCharactersOverBackgrounds below.
+func overInputBackground(e *Engine, coord Coord, fg Color) ColorPair {
+	pair := Fg(fg)
+	if e.Terminal.Config.ExistingColorHandling != DynamicExistingColors {
+		return pair
+	}
+	under := e.Terminal.CharacterAtInputCoord(coord)
+	if under != nil && under.IsVisible && under.Animation.InputColors.HasBg {
+		pair.Bg, pair.HasBg = under.Animation.InputColors.Bg, true
+	}
+	return pair
+}
+
+// carryAddedCharactersOverBackgrounds repaints every character the effect
+// added, meaning particles, beams, digits and the cells of a lightning strike,
+// over the background of the cell it is currently standing on.
+//
+// Call it from Advance, after Engine.Update, so it paints over the frame the
+// scenes have just produced. It is a no-op outside DynamicExistingColors.
+func carryAddedCharactersOverBackgrounds(e *Engine) {
+	if e.Terminal.Config.ExistingColorHandling != DynamicExistingColors {
+		return
+	}
+	for _, ch := range e.Terminal.AddedCharacters {
+		if !ch.IsVisible {
+			continue
+		}
+		visual := ch.Animation.CurrentVisual()
+		if !visual.Colors.HasFg {
+			continue
+		}
+		ch.Animation.SetAppearance(
+			visual.Symbol,
+			overInputBackground(e, ch.Motion.CurrentCoord, visual.Colors.Fg),
+			ch.UsesInputColors)
+	}
+}

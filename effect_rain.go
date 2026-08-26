@@ -87,7 +87,9 @@ func (r *Rain) Build(e *Engine) error {
 	characters := e.Terminal.GetCharacters(e.Rng, InputOnly(), SortTopToBottomLeftToRight)
 	for _, ch := range characters {
 		final := Fg(mapping.At(ch.InputCoord, fallback))
-		if dynamic && ch.UsesInputColors {
+		if dynamic {
+			// May be the empty pair, for a character the input gave no colour
+			// of its own. The fade scene has a branch for that.
 			final = ch.Animation.InputColors
 		}
 		dropColor := *Choice(e.Rng, r.config.RainColors)

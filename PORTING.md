@@ -165,6 +165,33 @@ Nearly every ttfx effect has a `dynamic` branch in `build()`. Port it. It is
 usually the difference between `final = ch.Animation.InputColors` and
 `final = Fg(mapping.At(ch.InputCoord, fallback))`.
 
+**Gate it on `dynamic` alone, never on `dynamic && ch.UsesInputColors`.** That
+extra clause looks like a safety net and is a bug. A cell that arrived with no
+colour of its own resolves to the empty `ColorPair`, and the empty pair is the
+answer: the character settles wearing nothing, which is the terminal default,
+which is exactly how it arrived. Adding the clause sends that character down
+the effect's own gradient instead, so it comes back permanently recoloured. On
+a real capture most cells are default-coloured shell output, so the whole
+picture reassembles in the effect's palette. Fourteen of the ports here carried
+that clause and all fourteen were corrected.
+
+Give the empty pair a branch of its own where the ramps are built:
+
+```go
+if fgGradient == nil && bgGradient == nil {
+    // Nothing to resolve back to, so one plain frame is the whole scene.
+    return scene.AddFrame(ch.InputSymbol, 5, VisualParams{})
+}
+```
+
+`ApplyGradientToSymbols` errors when both gradients are nil, so without the
+branch a colourless screen fails the build.
+
+`TestDynamicColorsResolveEveryCharacterBackToItself` and
+`TestDynamicColorsKeepTheColoursACellArrivedWith` in `colorpolicy_test.go` run
+this over the whole catalogue, so a new effect is checked the moment it
+registers.
+
 ### Deviating for a screen
 
 Upstream is written for piped text. Three of the ports here needed a change
@@ -191,6 +218,28 @@ The three so far, as worked examples:
 
 That last one applies to any effect that passes **over** the screen rather than
 assembling it. Ask which yours is.
+
+Two more have since been made often enough to be worth naming:
+
+* **Whatever you throw across the screen has to carry what it is over.** A
+  spark, a raindrop, a puff of smoke, a travelling digit and the cells of a
+  lightning strike all carry a foreground and no background, so over piped
+  text they draw on nothing and over a captured screen they punch a hole
+  straight through whatever they cross, moving every frame. Call
+  `carryAddedCharactersOverBackgrounds(e)` from `Advance`, after
+  `e.Update()`. It is a no-op outside `DynamicExistingColors`. If the thing
+  standing in the wrong place is an input character rather than one you added,
+  `overInputBackground(e, coord, fg)` is the same thing for one cell.
+* **A cell needs a foreground before an effect can change its foreground.**
+  `highlight`, `unstable` and `vhstape` are all about a colour change, and a
+  cell that arrived with no foreground has nothing to change: the effect
+  passes over it and nothing happens, on most of a real screen. Substitute
+  `DynamicNeutralGrey` inside the dynamic branch, use it to build the ramp,
+  and make sure the character still **settles** on what it arrived with, which
+  is nothing.
+
+`screen_fidelity_test.go` holds the regression tests for both, over a captured
+screen with a background-only bar in it. Add yours there.
 
 ## Wide glyphs
 

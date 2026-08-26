@@ -96,7 +96,9 @@ func (w *Waves) Build(e *Engine) error {
 
 	for _, ch := range e.Terminal.GetCharacters(e.Rng, InputOnly(), SortTopToBottomLeftToRight) {
 		final := Fg(mapping.At(ch.InputCoord, fallback))
-		if dynamic && ch.UsesInputColors {
+		if dynamic {
+			// May be the empty pair, for a character the input gave no colour
+			// of its own. The settle scene has a branch for that.
 			final = ch.Animation.InputColors
 		}
 

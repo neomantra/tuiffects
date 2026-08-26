@@ -598,7 +598,15 @@ func TestFrameRowsMatchTheFrameString(t *testing.T) {
 //
 // Negative control: deleting any effect file's init makes its name vanish.
 func TestRegistryHoldsThePortedEffects(t *testing.T) {
-	want := []string{"decrypt", "rain", "vhstape", "waves"}
+	want := []string{
+		"binarypath", "blackhole", "bouncyballs", "bubbles", "burn",
+		"crumble", "decrypt", "errorcorrect", "expand", "fireworks",
+		"highlight", "laseretch", "matrix", "middleout", "orbittingvolley",
+		"overflow", "pour", "print", "rain", "randomsequence",
+		"rings", "scattered", "slice", "slide", "smoke",
+		"spotlights", "spray", "swarm", "sweep", "synthgrid",
+		"thunderstorm", "unstable", "vhstape", "waves", "wipe",
+	}
 	got := Names()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("registered effects = %v, want %v", got, want)

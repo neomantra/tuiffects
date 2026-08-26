@@ -96,7 +96,9 @@ func (d *Decrypt) Build(e *Engine) error {
 
 	characters := e.Terminal.GetCharacters(e.Rng, InputOnly(), SortTopToBottomLeftToRight)
 	for _, ch := range characters {
-		if dynamic && ch.UsesInputColors {
+		if dynamic {
+			// May be the empty pair, for a character the input gave no colour
+			// of its own. prepareDecrypting has a branch for that.
 			d.finalColors[ch] = ch.Animation.InputColors
 		} else {
 			d.finalColors[ch] = Fg(mapping.At(ch.InputCoord, fallback))

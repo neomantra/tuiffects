@@ -111,10 +111,6 @@ func NewVhsTape(config VhsTapeConfig) *VhsTape {
 	}
 }
 
-// dynamicNeutralGrey is what a character with no foreground of its own wears
-// while the tape is playing, so it is visible against the snow.
-var dynamicNeutralGrey = MustParseColor("808080")
-
 // Build gives every row its slip paths and every character its colour-fringing,
 // snow and redraw scenes.
 func (v *VhsTape) Build(e *Engine) error {
@@ -133,10 +129,10 @@ func (v *VhsTape) Build(e *Engine) error {
 	dynamic := e.Terminal.Config.ExistingColorHandling == DynamicExistingColors
 
 	for _, ch := range e.Terminal.GetCharacters(e.Rng, InputOnly(), SortTopToBottomLeftToRight) {
-		if dynamic && ch.UsesInputColors {
+		if dynamic {
 			stable := ch.Animation.InputColors
 			if !stable.HasFg {
-				stable.Fg, stable.HasFg = dynamicNeutralGrey, true
+				stable.Fg, stable.HasFg = DynamicNeutralGrey, true
 			}
 			v.stableColors[ch] = stable
 			v.finalColors[ch] = ch.Animation.InputColors
