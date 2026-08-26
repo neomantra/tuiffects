@@ -64,3 +64,9 @@ func (m *orderedMap[T]) nextAutoID() string {
 		candidate++
 	}
 }
+
+// Clear empties the map, keeping the backing arrays for reuse.
+func (m *orderedMap[T]) Clear() {
+	m.keys = m.keys[:0]
+	m.values = m.values[:0]
+}

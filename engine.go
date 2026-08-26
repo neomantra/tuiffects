@@ -10,6 +10,10 @@ package tuiffects
 type Engine struct {
 	Terminal *Terminal
 	Rng      *Rng
+	// Clock is the source of time for the few effects written against
+	// seconds rather than frames. NewEngine installs a virtual one so those
+	// effects stay reproducible from the seed; see clock.go.
+	Clock *Clock
 
 	// activeMask is indexed by character id. A dense mask keeps insertion and
 	// removal at constant cost while iteration stays in ascending id order,
@@ -20,9 +24,11 @@ type Engine struct {
 	snapshot []*Character
 }
 
-// NewEngine builds an engine over a terminal.
+// NewEngine builds an engine over a terminal. Its clock is a virtual one
+// running at sixty frames a second; set Engine.Clock if the host paints at a
+// different rate, or wants real elapsed time.
 func NewEngine(terminal *Terminal, rng *Rng) *Engine {
-	return &Engine{Terminal: terminal, Rng: rng}
+	return &Engine{Terminal: terminal, Rng: rng, Clock: NewVirtualClock(60)}
 }
 
 // ActiveCount is how many characters are still animating.
@@ -441,7 +447,11 @@ func (e *Engine) Tick(ch *Character) {
 	e.StepAnimation(ch)
 }
 
-// Update ticks every active character, then drops the ones that finished.
+// Update ticks every active character, then drops the ones that finished, then
+// moves the clock on by one frame.
+//
+// The clock moves here rather than in Frame because an effect calls Update
+// exactly once per frame, while a host may read Frame twice or not at all.
 func (e *Engine) Update() {
 	for _, ch := range e.ActiveCharacters() {
 		e.Tick(ch)
@@ -456,6 +466,7 @@ func (e *Engine) Update() {
 			e.activeCount--
 		}
 	}
+	e.Clock.AdvanceFrame()
 }
 
 // Frame renders the current state as an ANSI string.

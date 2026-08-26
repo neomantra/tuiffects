@@ -280,6 +280,39 @@ func (t *Terminal) CharacterAtInputCoord(coord Coord) *Character {
 	return t.byInputCoord[coord]
 }
 
+// Neighbors returns the characters directly north, east, south and west of a
+// character, in that order, skipping any of the four cells that holds none.
+// Diagonals are not neighbours.
+//
+// Upstream snapshots these four slots onto every character when the terminal
+// is built. This looks them up on demand instead. The two are equivalent: the
+// snapshot is taken from the same input-coordinate table this reads, and the
+// table never changes afterwards because AddCharacter deliberately stays out
+// of it. Looking them up saves four pointers per character over a full screen.
+//
+// A character created with AddCharacter has no neighbours, because it has no
+// entry in the table. That matches upstream.
+func (t *Terminal) Neighbors(ch *Character) []*Character {
+	return t.appendNeighbors(nil, ch)
+}
+
+// appendNeighbors is Neighbors with a caller-supplied buffer, so a spanning
+// tree walking thousands of cells does not allocate a slice per step.
+func (t *Terminal) appendNeighbors(dst []*Character, ch *Character) []*Character {
+	c := ch.InputCoord
+	for _, coord := range [4]Coord{
+		{Column: c.Column, Row: c.Row + 1},
+		{Column: c.Column + 1, Row: c.Row},
+		{Column: c.Column, Row: c.Row - 1},
+		{Column: c.Column - 1, Row: c.Row},
+	} {
+		if neighbor := t.byInputCoord[coord]; neighbor != nil {
+			dst = append(dst, neighbor)
+		}
+	}
+	return dst
+}
+
 // SetCharacterVisibility shows or hides a character.
 func (t *Terminal) SetCharacterVisibility(ch *Character, visible bool) {
 	if ch.IsVisible == visible {

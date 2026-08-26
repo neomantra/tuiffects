@@ -80,6 +80,9 @@ The engine, in the shape ttfx found it:
 | `Event`, `Action` | how a scene or path hands off to the next one |
 | `Character` | one cell: its animation, its motion, its handlers |
 | `Canvas`, `Terminal` | the grid, the character populations, and the frame painter |
+| `ParticlePool` | recycles the short-lived characters an effect throws off |
+| `PrimsSimple` and the other spanning trees | join the canvas into a tree, and give an effect its running order |
+| `Clock` | seconds, for the effects written in seconds rather than frames |
 | `Engine` | the stepping loop that ties all of it together |
 
 Four effects, chosen to exercise different parts of that engine and to work
@@ -108,6 +111,10 @@ colour policy does, and what a finished port has to include.
 * No parity with the Python original, and no Mersenne Twister clone. The same
   effect will not produce the same frames as either upstream. `NewRng(seed)`
   makes a run reproducible within this package, which is what the tests need.
+* Time is virtual by default. The engine's clock advances one frame's worth per
+  `Update` rather than reading the machine, so an effect written in seconds
+  runs to the same number of frames every time. `NewRealClock` is there for a
+  host that would rather have wall time.
 * No command line, no tty writer, no resize handling. The host owns the screen.
 * Four effects rather than thirty-five.
 * Rounding quirks that change how effects look **are** kept: half-to-even

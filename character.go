@@ -24,6 +24,13 @@ type Character struct {
 	// than one that came from the input.
 	IsFill bool
 
+	// Links are the characters this one has been joined to by a spanning
+	// tree, kept in ascending id order. Upstream holds a Python set here and
+	// several effects walk it, so the order is pinned rather than left to
+	// whatever a set happens to yield. LinkCharacters is the only thing that
+	// writes it.
+	Links []*Character
+
 	handler eventHandler
 
 	// index is the slot in Terminal.Characters. Kept so a character can find
@@ -53,4 +60,12 @@ func (c *Character) IsActive() bool {
 // waypoint on this character.
 func (c *Character) RegisterEvent(event Event, from Caller, action Action) {
 	c.handler.register(event, from, action)
+}
+
+// ClearEvents drops every action registered on this character. A particle
+// pool calls it when a reused particle must not still be carrying the
+// handlers its previous life registered.
+func (c *Character) ClearEvents() {
+	c.handler.actions = nil
+	c.handler.subscribed = 0
 }

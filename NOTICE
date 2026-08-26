@@ -25,12 +25,21 @@ What was translated, file by file:
         ttfx src/engine/{ctx,character,canvas,terminal}.rs
         TTE terminaltexteffects/engine/{base_character,terminal}.py
 
+    clock.go       ttfx src/engine/ctx.rs (Clock)
     animation.go   ttfx src/engine/animation.rs, TTE engine/animation.py
     motion.go      ttfx src/engine/motion.rs,    TTE engine/motion.py
     events.go      ttfx src/engine/events.rs,    TTE engine/base_character.py
     easing.go      ttfx src/utils/easing.rs,     TTE utils/easing.py
     color.go       ttfx src/utils/graphics.rs,   TTE utils/graphics.py
     geometry.go    ttfx src/utils/geometry.rs,   TTE utils/geometry.py
+
+    particles.go
+        ttfx src/engine/particles.rs
+        TTE terminaltexteffects/engine/effect_support/particles.py
+
+    spanning_tree.go
+        ttfx src/utils/spanning_tree.rs
+        TTE terminaltexteffects/utils/spanningtree/
 
     effect_decrypt.go  ttfx src/effects/decrypt.rs,  TTE effects/effect_decrypt.py
     effect_rain.go     ttfx src/effects/rain.rs,     TTE effects/effect_rain.py
@@ -46,6 +55,8 @@ What was deliberately NOT carried over:
   * The command-line interface, the tty writer, resize handling, and the
     other 31 effects. This package renders into a host program's screen, not
     into a terminal it owns.
+  * The AldousBroder spanning tree, which ttfx also leaves out because no
+    shipped effect uses it.
 
 Rounding quirks that ARE carried over, because they change how the effects
 look and removing them would silently retune every one of them: half-to-even

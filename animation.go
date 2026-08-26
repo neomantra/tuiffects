@@ -422,6 +422,14 @@ func (a *Animation) ActiveSceneIsComplete() bool {
 	return len(scene.frames) == 0 || scene.IsLooping
 }
 
+// ClearScenes removes every scene from the character and stops whatever was
+// running. As with Motion.ClearPaths, the active reference goes too.
+func (a *Animation) ClearScenes() {
+	a.scenes.Clear()
+	a.hasActive = false
+	a.activeScene = ""
+}
+
 // SetAppearance overrides the current visual outside of any scene.
 func (a *Animation) SetAppearance(symbol string, colors ColorPair, usesInputColors bool) {
 	bold := false

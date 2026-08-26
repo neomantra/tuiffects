@@ -126,9 +126,11 @@ If your effect stops early, check this first.
 `Update`.
 
 **Declare fill characters.** If your effect queries `InnerFill` or `OuterFill`,
-set `NeedsFillCharacters: true` in the `Descriptor`. The terminal is built
-before the effect and a fill character cannot be added later, so without the
-declaration you get an empty set and silently animate nothing.
+or builds a spanning tree, set `NeedsFillCharacters: true` in the `Descriptor`.
+The terminal is built before the effect and a fill character cannot be added
+later, so without the declaration you get an empty set and silently animate
+nothing. Upstream always makes fill characters, so no ttfx effect says it needs
+them; yours has to.
 
 ## The three rounding quirks
 
@@ -232,15 +234,205 @@ ported and tested:
 `ShiftColorTowards`, `NewGradient`, `BuildCoordinateColorMapping`, the
 thirty-one easing curves, and the character sorts and groupings.
 
-## Helpers that do not exist yet
+Three more arrived after the first four effects, and each has its own section
+below because each deviates from the Rust in a way you have to know about:
+the **spanning tree generators**, the **particle pool**, and the **clock**.
 
-Three effects' worth of machinery is still missing. If your effect needs one of
-these, **stop and hand it back** rather than writing a local version:
+## Spanning trees
 
-| Missing | ttfx source | Effects that need it |
+`spanning_tree.go`, from ttfx `src/utils/spanning_tree.rs`, from TTE
+`utils/spanningtree/`.
+
+Four generators join the characters of the canvas into a tree, one edge per
+`Step`, and record the order they did it in. That order is the effect's running
+order.
+
+| Generator | What its tree looks like | Who uses it |
 | --- | --- | --- |
-| `PrimsSimple` spanning tree | `src/utils/spanning_tree.rs`, 332 lines | `burn`, `smoke`, `laseretch` |
-| `ParticlePool` | `src/engine/particles.rs`, 205 lines | `burn`, `laseretch`, `thunderstorm` |
-| Wall clock and monotonic time on the engine | `src/engine/ctx.rs` `Clock` | `matrix`, `thunderstorm` |
+| `PrimsSimple` | wanders outwards from a point | `burn` |
+| `PrimsWeighted` | seeps towards the cheapest cell first | `smoke` |
+| `RecursiveBacktracker` | long corridors with dead ends | `laseretch` |
+| `BreadthFirst` | walks a tree somebody else built, one ring per step | `smoke` |
 
-Everything else in the catalogue is portable with what is here today.
+All four share a shape:
+
+```go
+tree, err := NewPrimsSimple(e, nil, true)   // nil starting character = random
+for !tree.Complete {
+    tree.Step(e)
+}
+for _, ch := range tree.CharLinkOrder { ... }
+```
+
+In practice you call `Step` once per frame instead, so the tree grows on
+screen while the effect runs.
+
+### Call for call
+
+| ttfx | here |
+| --- | --- |
+| `PrimsSimple::new(ctx, start, limit)` | `NewPrimsSimple(e, start, limit)` |
+| `PrimsWeighted::new(ctx, start, limit)` | `NewPrimsWeighted(e, start, limit)` |
+| `RecursiveBacktracker::new(ctx, start, limit)` | `NewRecursiveBacktracker(e, start, limit)` |
+| `BreadthFirst::new(ctx, start, limit)` | `NewBreadthFirst(e, start, limit)` |
+| `Some(char_id)` / `None` for the start | a `*Character`, or `nil` for a random one |
+| `algo.step(ctx)` | `algo.Step(e)` |
+| `bfs.step(ctx)` | `bfs.Step()`, which needs no engine because it only follows links |
+| `link_characters(ctx, a, b)` | `LinkCharacters(a, b)`, no engine either |
+| `ch.links` | `ch.Links`, ascending id, same as ttfx |
+| `ch.neighbors.north` and friends | `e.Terminal.Neighbors(ch)`, in north, east, south, west order, skipping empty cells |
+| `algo.char_link_order` | `algo.CharLinkOrder` |
+| `algo.char_last_linked` | `algo.CharLastLinked` |
+| `algo.complete` | `algo.Complete` |
+| `bfs.explored_last_step` | `bfs.ExploredLastStep` |
+| `bfs.char_explore_order` | `bfs.CharExploreOrder` |
+| the rest of the public fields | the same name, exported |
+
+### Where this differs from the Rust
+
+**`LinkCharacters` takes no engine.** ttfx passes `ctx` because its characters
+live in an arena and it needs the arena to reach them. Here a character is a
+pointer. Same for `BreadthFirst.Step`, which reads only `Links`.
+
+**Neighbours are looked up, not stored.** ttfx snapshots four slots onto every
+character when the terminal is built; `Terminal.Neighbors` reads the same
+input-coordinate table on demand. The two agree, because that table never
+changes after the terminal is built: `AddCharacter` deliberately stays out of
+it, so a character you created yourself has no neighbours in either
+implementation.
+
+### The two things that will catch you
+
+**Your effect must set `NeedsFillCharacters: true`.** The tree runs over the
+whole canvas, not over the text. Without fill characters most cells hold no
+character, and a generator handed `nil` for its starting character picks a
+random coordinate that lands on nothing and returns `ErrNoStartingCharacter`.
+Upstream always makes fill characters, so it never had to say this.
+
+**`Complete` turns true one `Step` late.** It flips on the step that finds the
+work already finished, not on the step that finishes it, so there is always one
+last step that links nothing. That is upstream's, `BreadthFirst` does it too,
+and effect frame counts are tuned to it. Do not tighten it.
+
+## The particle pool
+
+`particles.go`, from ttfx `src/engine/particles.rs`, from TTE
+`engine/effect_support/particles.py`.
+
+`ParticlePool` recycles the characters an effect throws off: sparks, smoke,
+raindrops. A character lives on the terminal for the whole run, so an effect
+that made a new one per spark would leak for as long as it ran.
+
+```go
+pool, err := NewParticlePool([]string{"*", "."}, 2000, Coord{}, initSpark)
+pool.Preallocate(e, 2000)
+for _, particle := range pool.Particles {
+    pool.ReclaimOnEvent(particle, SceneComplete, SceneCaller("spark"), true, true)
+}
+...
+pool.Emit(e, origin, "", true, ParticleReset{}, func(e *Engine, ch *Character) {
+    // give it this flight's path and scene, then activate them
+})
+```
+
+### Call for call
+
+| ttfx | here |
+| --- | --- |
+| `ParticlePool::new(symbols, max, coord)` | `NewParticlePool(symbols, max, coord, initializer)` |
+| `Some(2000)` / `None` for the max | `2000` / `0` |
+| `None` for the coord | `Coord{}` |
+| `pool.preallocate(ctx, n, initializer)` | `pool.Preallocate(e, n)` |
+| `pool.acquire(ctx, symbol, reset, initializer)` | `pool.Acquire(e, symbol, reset)` |
+| `pool.emit(ctx, origin, symbol, visible, reset, initializer, on_emit)` | `pool.Emit(e, origin, symbol, visible, reset, onEmit)` |
+| `Some("x")` / `None` for a symbol | `"x"` / `""` |
+| `pool.reclaim(ctx, id, hide, deactivate)` | `pool.Reclaim(e, ch, hide, deactivate)` |
+| the hand-rolled reclaim callback registration | `pool.ReclaimOnEvent(ch, event, from, hide, deactivate)` |
+| `pool.extend(ids)` | `pool.Extend(chars...)` |
+| `pool.particles` | `pool.Particles` |
+| `pool.len()` | `pool.Len()` |
+| `ParticleReset::default()` | `ParticleReset{}` |
+| `ParticleReset { clear_events: true, ..Default::default() }` | `ParticleReset{ClearEvents: true}` |
+
+`Emit` and `Acquire` return `nil` when the pool is capped out and nothing is
+free. An effect throwing off decoration can ignore that; check it if the
+particle matters.
+
+### Where this differs from the Rust
+
+**The pool holds the initializer.** ttfx passes it to `preallocate`, `acquire`
+and `emit` separately, because Rust will not let the pool own a closure that
+touches the engine. Every effect in the catalogue passes the same closure to
+all three, and passing two different ones would give you particles that behave
+differently depending on whether the free list happened to be empty. So it is
+given once, to `NewParticlePool`, and it may be `nil`.
+
+It runs once per particle **created**, never on one reused. It is where you
+build the scenes a particle needs for its whole life. Anything that changes per
+flight belongs in `onEmit`.
+
+**Three `ParticleReset` fields are inverted, on purpose.** Upstream names them
+`clear_paths`, `deactivate_path` and `deactivate_scene` and defaults all three
+to **true**. A Go struct defaults to false, so keeping upstream's names would
+make `ParticleReset{}` mean "reset nothing" and hand you a spark still flying
+along its last path. Here they are `KeepPaths`, `KeepActivePath` and
+`KeepActiveScene`, so:
+
+    ParticleReset{}                     == upstream's default
+    ParticleReset{ClearEvents: true}    == the only other shape any effect uses
+
+If you find yourself wanting upstream's `clear_paths: false`, that is
+`KeepPaths: true`. Reach for `ClearScenes` only if you know why: it throws away
+the scenes the initializer built and makes you rebuild them every emission,
+which is the cost the pool exists to avoid.
+
+**`ReclaimOnEvent` exists here.** Upstream has it; ttfx dropped it and each
+effect wires the registration by hand through a callback id, because of the
+same Rust closure problem. Use it.
+
+**No `emission_id`.** ttfx's `burn` threads a counter through its reclaim
+callback so each registration is a distinct closure, because Python raises on
+registering the identical handler twice. Nothing here rejects a duplicate
+registration and `Reclaim` is idempotent, so the counter has no job. Delete it.
+
+## The clock
+
+`clock.go`, from ttfx `src/engine/ctx.rs` `Clock`.
+
+Two effects are written in seconds rather than frames: `matrix` runs its rain
+for a number of seconds, `thunderstorm` its storm.
+
+| ttfx | here |
+| --- | --- |
+| `ctx.clock.now_wall()` | `e.Clock.Wall()` |
+| `ctx.clock.now_monotonic()` | `e.Clock.Elapsed()` |
+| `ctx.clock.advance_frame()` | nothing; `e.Update()` does it |
+
+Both return `float64` seconds, as they do in ttfx.
+
+### Keeping your port deterministic
+
+**`NewEngine` installs a virtual clock, and you should leave it there.**
+Everything else in this engine comes out of a seed, and a real clock would take
+that away from exactly the two effects that read it: the same seed would give a
+different number of frames on a fast machine than on a slow one, and neither
+effect could be tested.
+
+The virtual clock advances one step per `Engine.Update`, and an effect calls
+`Update` exactly once per frame. So it reports the time the animation *would*
+have taken, `rain_time` still means seconds, and a seeded run is repeatable.
+Write your effect against it exactly as ttfx writes its effect against
+`now_wall`, and you get both.
+
+Three rules follow:
+
+* **Do not call `AdvanceFrame` yourself.** `Update` calls it. Calling it too
+  runs your effect's clock at twice the frame rate.
+* **Do not read the clock to decide how far to move something.** It is there
+  for "has long enough passed", which is all upstream uses it for. Anything
+  smoother should count frames, like every other effect here does.
+* **Do not swap in `NewRealClock`.** It exists for a host that wants wall time
+  and accepts losing the repeatable run. It is not an effect's decision.
+
+The host sets the frame rate: `e.Clock = NewVirtualClock(30)` if it paints at
+thirty. Your effect never touches this.

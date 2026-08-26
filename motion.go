@@ -158,6 +158,17 @@ func (m *Motion) NewPath(id string, opts PathOptions) (*Path, error) {
 	return path, nil
 }
 
+// ClearPaths removes every path from the character and stops whatever was
+// running. Upstream clears the path table without touching the active path
+// reference; this clears both, because a reference to a path that no longer
+// exists leaves MovementIsComplete false forever and the character never
+// leaves the active set.
+func (m *Motion) ClearPaths() {
+	m.paths.Clear()
+	m.hasActivePath = false
+	m.activePath = ""
+}
+
 // MovementIsComplete reports whether the character has no path running.
 func (m *Motion) MovementIsComplete() bool { return !m.hasActivePath }
 
