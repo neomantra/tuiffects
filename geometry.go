@@ -156,3 +156,80 @@ func FindNormalizedDistanceFromCenter(bottom, top, left, right int, other Coord)
 	distance := math.Sqrt(dx*dx + dy*dy)
 	return distance / (maxDistance / 2), true
 }
+
+// FindCoordsInCircle returns every coordinate inside an ellipse centred on the
+// given coord.
+//
+// Upstream calls this a circle and builds an ellipse: the horizontal
+// semi-axis is the diameter and the vertical one is half of it. That is the
+// terminal cell aspect correction done in the shape rather than in the
+// distance, and effects are tuned to the shape it actually produces.
+func FindCoordsInCircle(center Coord, diameter int) []Coord {
+	if diameter == 0 {
+		return nil
+	}
+	var coords []Coord
+	aSquared := float64(diameter) * float64(diameter)
+	bSquared := (float64(diameter) / 2) * (float64(diameter) / 2)
+	for x := center.Column - diameter; x <= center.Column+diameter; x++ {
+		dx := float64(x - center.Column)
+		// int() truncation, as upstream does it.
+		maxYOffset := int(math.Sqrt(bSquared * (1 - (dx*dx)/aSquared)))
+		for y := center.Row - maxYOffset; y <= center.Row+maxYOffset; y++ {
+			coords = append(coords, C(x, y))
+		}
+	}
+	return coords
+}
+
+// FindCoordsInRect returns every coordinate in the square block reaching
+// distance cells out from the origin. A distance of zero returns nothing.
+func FindCoordsInRect(origin Coord, distance int) []Coord {
+	if distance == 0 {
+		return nil
+	}
+	var coords []Coord
+	for column := origin.Column - distance; column <= origin.Column+distance; column++ {
+		for row := origin.Row - distance; row <= origin.Row+distance; row++ {
+			coords = append(coords, C(column, row))
+		}
+	}
+	return coords
+}
+
+// FindCoordsOnRect returns the perimeter of a rectangle. Either half-dimension
+// being zero returns nothing.
+func FindCoordsOnRect(origin Coord, halfWidth, halfHeight int) []Coord {
+	if halfWidth == 0 || halfHeight == 0 {
+		return nil
+	}
+	var coords []Coord
+	for column := origin.Column - halfWidth; column <= origin.Column+halfWidth; column++ {
+		if column == origin.Column-halfWidth || column == origin.Column+halfWidth {
+			for row := origin.Row - halfHeight; row <= origin.Row+halfHeight; row++ {
+				coords = append(coords, C(column, row))
+			}
+			continue
+		}
+		coords = append(coords, C(column, origin.Row-halfHeight))
+		coords = append(coords, C(column, origin.Row+halfHeight))
+	}
+	return coords
+}
+
+// ExtrapolateAlongRay returns the coordinate reached by carrying on past
+// target, along the line from origin, by offsetFromTarget cells.
+//
+// The line length here is the raw one, with no row doubling, unlike most of
+// this file. That is upstream's choice and effects are tuned to it.
+func ExtrapolateAlongRay(origin, target Coord, offsetFromTarget float64) Coord {
+	base := FindLengthOfLine(origin, target, false)
+	total := base + offsetFromTarget
+	if total == 0 || origin == target {
+		return target
+	}
+	t := total / base
+	column := (1-t)*float64(origin.Column) + t*float64(target.Column)
+	row := (1-t)*float64(origin.Row) + t*float64(target.Row)
+	return C(roundHalfEven(column), roundHalfEven(row))
+}

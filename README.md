@@ -99,6 +99,10 @@ and `Advance` (release a few characters, call `engine.Update()`, say whether
 you are done), and call `Register` from an `init`. The four here are 160 to 430
 lines each and the engine does the rest.
 
+[PORTING.md](PORTING.md) is the full guide for bringing one across from ttfx:
+the call-for-call mapping, the quirks that are wrong on purpose, what the
+colour policy does, and what a finished port has to include.
+
 ## Differences from ttfx
 
 * No parity with the Python original, and no Mersenne Twister clone. The same

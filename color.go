@@ -2,6 +2,7 @@ package tuiffects
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -269,5 +270,88 @@ func ShiftColorTowards(color, target Color, factor float64) Color {
 		R: shift(color.R, target.R),
 		G: shift(color.G, target.G),
 		B: shift(color.B, target.B),
+	}
+}
+
+// AdjustColorBrightness scales a colour's lightness, keeping its hue and
+// saturation. A factor below 1 darkens and above 1 brightens.
+//
+// It is a hand-rolled RGB to HSL round trip rather than a library conversion,
+// because that is what upstream does and the results differ in the last unit
+// of each channel. Effects that fade a character and brighten it back are
+// tuned to these numbers. Note this rounds half to even at the end, unlike
+// ShiftColorTowards which truncates.
+func AdjustColorBrightness(color Color, brightness float64) Color {
+	red := float64(color.R) / 255
+	green := float64(color.G) / 255
+	blue := float64(color.B) / 255
+
+	maxValue := math.Max(red, math.Max(green, blue))
+	minValue := math.Min(red, math.Min(green, blue))
+	lightness := (maxValue + minValue) / 2
+
+	const lightnessThreshold = 0.5
+	var hue, saturation float64
+	if maxValue != minValue {
+		diff := maxValue - minValue
+		if lightness > lightnessThreshold {
+			saturation = diff / (2 - maxValue - minValue)
+		} else {
+			saturation = diff / (maxValue + minValue)
+		}
+		switch maxValue {
+		case red:
+			hue = (green - blue) / diff
+			if green < blue {
+				hue += 6
+			}
+		case green:
+			hue = (blue-red)/diff + 2
+		default:
+			hue = (red-green)/diff + 4
+		}
+		hue /= 6
+	}
+
+	lightness = math.Min(math.Max(lightness*brightness, 0), 1)
+
+	var outR, outG, outB float64
+	if saturation == 0 {
+		outR, outG, outB = lightness, lightness, lightness
+	} else {
+		var intensity float64
+		if lightness < lightnessThreshold {
+			intensity = lightness * (1 + saturation)
+		} else {
+			intensity = lightness + saturation - lightness*saturation
+		}
+		scaled := 2*lightness - intensity
+		outR = hueToRGB(scaled, intensity, hue+1.0/3.0)
+		outG = hueToRGB(scaled, intensity, hue)
+		outB = hueToRGB(scaled, intensity, hue-1.0/3.0)
+	}
+	return Color{
+		R: clampChannel(roundHalfEven(outR * 255)),
+		G: clampChannel(roundHalfEven(outG * 255)),
+		B: clampChannel(roundHalfEven(outB * 255)),
+	}
+}
+
+func hueToRGB(lightnessScaled, intensity, hue float64) float64 {
+	if hue < 0 {
+		hue++
+	}
+	if hue > 1 {
+		hue--
+	}
+	switch {
+	case hue < 1.0/6.0:
+		return lightnessScaled + (intensity-lightnessScaled)*6*hue
+	case hue < 1.0/2.0:
+		return intensity
+	case hue < 2.0/3.0:
+		return lightnessScaled + (intensity-lightnessScaled)*(2.0/3.0-hue)*6
+	default:
+		return lightnessScaled
 	}
 }

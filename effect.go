@@ -18,11 +18,21 @@ type Effect interface {
 type Factory func() Effect
 
 // Descriptor is a registered effect: its name, one line about what it does,
-// and how to build one.
+// how to build one, and what it needs from the terminal before it can build.
 type Descriptor struct {
 	Name        string
 	Description string
 	New         Factory
+	// NeedsFillCharacters says the effect animates the empty cells of the
+	// canvas as well as the input, so the terminal must be built with
+	// MakeFillCharacters set.
+	//
+	// It is declared here rather than discovered in Build because the
+	// terminal is built before the effect is, and a fill character cannot be
+	// added afterwards. An effect that queries InnerFill or OuterFill without
+	// setting this gets an empty result and quietly animates nothing, which
+	// is the failure this field exists to prevent.
+	NeedsFillCharacters bool
 }
 
 var registry = map[string]Descriptor{}
