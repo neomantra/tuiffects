@@ -231,11 +231,14 @@ func TestSwarmDrawsACellThatIsOnlyABackground(t *testing.T) {
 // is home and wearing its own background - rendering with no background,
 // which can only be something standing over it.
 //
-// Negative control: removing any one of the five carry-the-background passes
-// fails that effect. Run against all five.
+// Negative control: removing any one of the six carry-the-background passes
+// fails that effect. Run against all six. tuffbaby's pass is its own, because
+// what flies over the bar there is the screen's own text rather than anything
+// the effect added; dropping both of its call sites reports 80 of 1459 rebuilt
+// bar cell-frames punched out.
 func TestNothingPunchesAHoleThroughAFilledBar(t *testing.T) {
 	const width, height, barRow = 40, 12, 4
-	for _, name := range []string{"binarypath", "burn", "errorcorrect", "thunderstorm", "laseretch"} {
+	for _, name := range []string{"binarypath", "burn", "errorcorrect", "thunderstorm", "laseretch", "tuffbaby"} {
 		t.Run(name, func(t *testing.T) {
 			settled := make(map[*Character]bool)
 			barCanvasRow := height - barRow

@@ -33,6 +33,20 @@ type Descriptor struct {
 	// setting this gets an empty result and quietly animates nothing, which
 	// is the failure this field exists to prevent.
 	NeedsFillCharacters bool
+	// Origin credits an effect this package wrote rather than ported.
+	//
+	// A port leaves it empty. Ports are credited in NOTICE, which maps every
+	// file here to the ttfx source and the TerminalTextEffects source it was
+	// translated from, and that is the only credit a port needs.
+	//
+	// An effect that was not translated has no line to write there, so it
+	// carries its credit here instead: where its material came from, in one
+	// line, in the effect's own registration where the person adding it
+	// cannot avoid deciding. An empty Origin is therefore a claim in itself,
+	// that this effect is a translation and NOTICE says of what.
+	//
+	// catalogue_test.go holds both halves to their word.
+	Origin string
 }
 
 var registry = map[string]Descriptor{}

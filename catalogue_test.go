@@ -6,14 +6,27 @@ import (
 	"testing"
 )
 
-// TestEveryEffectIsCredited checks the attribution chain. Every registered
-// effect must have a file, a NOTICE line naming both the ttfx source and the
-// TerminalTextEffects source, and a README table row. The chain is the one
-// thing about this package that cannot be corrected after the fact, so it is
+// TestEveryEffectIsCredited checks the attribution chain, which is the one
+// thing about this package that cannot be corrected after the fact and so is
 // guarded by a test rather than by a habit.
 //
-// Negative control: deleting any effect's NOTICE line, or its README row,
-// fails this test. Both were run.
+// Every registered effect must have a file and a README table row. Beyond
+// that it must be one of two things and not both, and which one it is comes
+// from the effect's own Descriptor rather than from a list kept here:
+//
+//   - a port declares no Origin, and must have a NOTICE line naming both the
+//     ttfx source and the TerminalTextEffects source it was translated from;
+//   - an effect original to this package declares an Origin saying where its
+//     material came from, and must have no NOTICE line at all, because NOTICE
+//     records translations and this was not one.
+//
+// Checking both directions is what makes the declaration worth anything. An
+// original that also appears in NOTICE is claiming an upstream it does not
+// have, and that fails here just as loudly as a port with no line.
+//
+// Negative control: deleting a port's NOTICE line, deleting any effect's
+// README row, clearing tuffbaby's Origin, and adding a NOTICE line for an
+// effect that declares one all fail this test. All four were run.
 func TestEveryEffectIsCredited(t *testing.T) {
 	notice, err := os.ReadFile("NOTICE")
 	if err != nil {
@@ -30,6 +43,9 @@ func TestEveryEffectIsCredited(t *testing.T) {
 		if _, err := os.Stat(file); err != nil {
 			t.Errorf("effect %q has no %s", name, file)
 		}
+		if !strings.Contains(readmeText, "| `"+name+"` |") {
+			t.Errorf("effect %q has no README table row", name)
+		}
 		line := ""
 		for _, candidate := range strings.Split(noticeText, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(candidate), file+" ") {
@@ -37,6 +53,16 @@ func TestEveryEffectIsCredited(t *testing.T) {
 				break
 			}
 		}
+		if descriptor, _ := Lookup(name); descriptor.Origin != "" {
+			// An original. Its Origin is its credit, and NOTICE must stay
+			// clear of it.
+			if line != "" {
+				t.Errorf("effect %q declares an Origin but is also credited in NOTICE: %s",
+					name, line)
+			}
+			continue
+		}
+
 		// Two names differ from the source file they came from. ttfx calls
 		// print's file print_effect.rs to keep clear of a Rust keyword, and
 		// randomsequence's random_sequence.rs while calling the effect itself
@@ -57,9 +83,6 @@ func TestEveryEffectIsCredited(t *testing.T) {
 			t.Errorf("effect %q NOTICE line does not name %s: %s", name, rust, line)
 		case !strings.Contains(line, "TTE effects/effect_"+ttePythonName(name)+".py"):
 			t.Errorf("effect %q NOTICE line names no TerminalTextEffects source: %s", name, line)
-		}
-		if !strings.Contains(readmeText, "| `"+name+"` |") {
-			t.Errorf("effect %q has no README table row", name)
 		}
 	}
 }

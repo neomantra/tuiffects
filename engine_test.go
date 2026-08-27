@@ -596,6 +596,10 @@ func TestFrameRowsMatchTheFrameString(t *testing.T) {
 // TestRegistryHoldsThePortedEffects guards the registry wiring, since a
 // missing init leaves an effect unreachable by name.
 //
+// The roster is the thirty-five ports plus tuffbaby, which is original to this
+// package and registers itself the same way. Names() is sorted, so it lands
+// between thunderstorm and unstable.
+//
 // Negative control: deleting any effect file's init makes its name vanish.
 func TestRegistryHoldsThePortedEffects(t *testing.T) {
 	want := []string{
@@ -605,7 +609,7 @@ func TestRegistryHoldsThePortedEffects(t *testing.T) {
 		"overflow", "pour", "print", "rain", "randomsequence",
 		"rings", "scattered", "slice", "slide", "smoke",
 		"spotlights", "spray", "swarm", "sweep", "synthgrid",
-		"thunderstorm", "unstable", "vhstape", "waves", "wipe",
+		"thunderstorm", "tuffbaby", "unstable", "vhstape", "waves", "wipe",
 	}
 	got := Names()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
