@@ -17,6 +17,14 @@ All three are MIT. All three copyrights are preserved in [LICENSE](LICENSE),
 and [NOTICE](NOTICE) maps every file here to both the ttfx source and the
 TerminalTextEffects source it came from.
 
+One effect, `tuffbaby`, is the exception: it is original to this package and
+has no upstream. It is written against ChrisBuilds' engine like every other
+effect here. It is not in NOTICE, because NOTICE records what was translated
+and from where; it declares where its material came from in its own
+`Descriptor.Origin` instead. `catalogue_test.go` holds every effect to one or
+the other and refuses both, so an original cannot quietly claim an upstream
+and a port cannot quietly lose one.
+
 If you like what you see, star [the original][tte]. Effect ideas belong
 upstream, where they were invented.
 
@@ -124,6 +132,29 @@ Thirty-five effects, every one ttfx ships except `beams` and `colorshift`:
 | `vhstape` | rows slip and the picture is redrawn | paths driving synced scenes, row groups, and several phases |
 | `waves` | a band of blocks sweeps across | eased scenes released in bands, a sweep with no motion at all |
 | `wipe` | a line crosses the screen and the text appears behind it | an easing curve deciding which character groups are released, and taking them back when it reverses |
+
+And one that is not a port:
+
+| Effect | What it does | What it shows |
+| --- | --- | --- |
+| `tuffbaby` | the text on screen gathers into a picture, a short clip plays in it a tone at a time, and everything goes home | a deflated frame sequence decoded once and scaled to the canvas, characters appended when the screen has too few and swept off the nearest edge when it has too many, and animation by repaint rather than by motion |
+
+`tuffbaby` is the one effect here nobody upstream wrote; see
+[Credit where it is due](#credit-where-it-is-due) and its `Origin`, which
+names where its frames came from. It
+takes whatever is already on the screen and arranges it into the picture, so
+what the picture is drawn out of is your own text. The cells are the union of
+every frame of the clip, which works out at a bit over half the canvas at any
+size: a denser screen parks its surplus off the edges, a sparser one has the
+rest appended, recycling the glyphs that were there.
+
+It is the one effect that carries data: the frames are 18KB of deflated base64
+in `tuffbaby_frames.go`, decoded once on first use, which is about half the
+size of the largest hand-written effect here. And it is a continuous-tone
+photograph rendered in text, so it is softer than the shapes the other effects
+draw: a glyph fills about a third of its cell and how much varies per glyph,
+which is louder than a five step ramp. The light end is drawn bold to claw
+some of that back. It reads best on a wide canvas.
 
 ## Adding an effect
 
