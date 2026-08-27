@@ -246,7 +246,7 @@ func (t *TuffBaby) Build(e *Engine) error {
 		if err != nil {
 			return err
 		}
-		if err := t.buildFlights(ch, cell.coord, ch.InputCoord); err != nil {
+		if err := t.buildFlights(ch, cell.coord, ch.InputCoord, finalColors[ch]); err != nil {
 			return err
 		}
 		t.placed = append(t.placed, tuffPlacement{ch: ch, carried: carried, tones: cell.tones})
@@ -257,7 +257,7 @@ func (t *TuffBaby) Build(e *Engine) error {
 		if err := t.dressForExit(ch, finalColors[ch], dynamic); err != nil {
 			return err
 		}
-		if err := t.buildFlights(ch, exit, ch.InputCoord); err != nil {
+		if err := t.buildFlights(ch, exit, ch.InputCoord, finalColors[ch]); err != nil {
 			return err
 		}
 	}
@@ -586,8 +586,9 @@ func (t *TuffBaby) buildRamp(ch *Character, id string, from, to ColorPair, durat
 }
 
 // buildFlights gives a character the path out to where the effect wants it and
-// the path back to where it came from.
-func (t *TuffBaby) buildFlights(ch *Character, target, home Coord) error {
+// the path back to where it came from. final is what it settles on once it is
+// home.
+func (t *TuffBaby) buildFlights(ch *Character, target, home Coord, final ColorPair) error {
 	gather, err := ch.Motion.NewPath("gather", PathOptions{
 		Speed: t.config.GatherSpeed, Ease: t.config.GatherEase, HasEase: true,
 		Layer: tuffFlightLayer, HasLayer: true,
@@ -612,6 +613,20 @@ func (t *TuffBaby) buildFlights(ch *Character, target, home Coord) error {
 	// picture is not painted in arrival order.
 	ch.RegisterEvent(PathComplete, PathCaller("gather"), SetLayer(0))
 	ch.RegisterEvent(PathComplete, PathCaller("home"), SetLayer(0))
+	// The settle scene can run out of frames before the flight home ends.
+	// After that nothing repaints the character, so the borrowed background
+	// carryFlightsOverBackgrounds put on it on its last airborne frame is the
+	// last thing written and it lands wearing it. A cell that arrived with no
+	// background then keeps one it never had, which breaks the whole point of
+	// DynamicExistingColors. Put the settled colours back on the frame it
+	// arrives, and only when the scene has stopped painting: a scene still
+	// running paints the rest of its ramp itself.
+	settled := final
+	ch.RegisterEvent(PathComplete, PathCaller("home"), Callback(func(_ *Engine, ch *Character) {
+		if ch.Animation.ActiveSceneIsComplete() {
+			ch.Animation.SetAppearance(ch.InputSymbol, settled, ch.UsesInputColors)
+		}
+	}))
 	return nil
 }
 
