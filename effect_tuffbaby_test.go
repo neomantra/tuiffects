@@ -1,6 +1,7 @@
 package tuiffects
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -224,33 +225,69 @@ func TestTuffBabyPlaysTheClip(t *testing.T) {
 	}
 }
 
-// TestTuffBabyHoldsEachSourceFrame checks the clip runs at its own speed rather
-// than at the host's. The source is ten frames a second and a host paints
-// sixty, so each source frame is held for FrameHold host frames; repainting
-// every host frame would play the clip six times too fast.
+// TestTuffBabyHoldsEachSourceFrame checks the clip runs at its own speed
+// rather than at the host's, at whatever speed the host runs.
 //
-// Negative control: dropping the FrameHold gate from play() makes the clip
-// advance every host frame, and two loops last 111 host frames instead of
-// 661. Run.
+// The source is ten frames a second, so one of its frames is held for a tenth
+// of a second of engine time: six frames on a host painting sixty, twelve on
+// one painting a hundred and twenty, twenty-four on one painting two hundred
+// and forty. The clip therefore lasts the same 5.5 seconds on all three, and
+// all fifty-five of its frames reach the screen on all three.
+//
+// Counting host frames instead holds every source frame for six of them
+// whatever the host does, which is what the fault was: the clip played four
+// times too fast on a host at two hundred and forty, at forty source frames a
+// second, and a reader saw a blur rather than the clip.
+//
+// Negative control: putting the host-frame count back in play() (a frameTick
+// counter against a hold of six, in place of the clock reading) plays two
+// loops over 661 host frames at every rate, so the 120 case reports 5.500
+// seconds of clip against the 11 wanted and the 240 case reports 2.750. The 60
+// case still passes, which is the point of running all three. Run.
+//
+// Second control, for the count of frames reached: taking the frame modulo
+// five fewer than the clip has reports "the run reached 51 of the clip's
+// frames, want all 55" at every rate, while the length of the run is
+// untouched. The two assertions fail apart, which is what says they measure
+// different things. Run.
 func TestTuffBabyHoldsEachSourceFrame(t *testing.T) {
-	config := DefaultTuffBabyConfig()
-	config.Loops = 2
-	term := NewTerminalFromText(tuffScreenText(60, 20), TerminalConfig{Width: 60, Height: 20})
-	engine := NewEngine(term, NewRng(3))
-	effect := NewTuffBaby(config)
+	for _, rate := range []int{60, 120, 240} {
+		t.Run(strconv.Itoa(rate), func(t *testing.T) {
+			config := DefaultTuffBabyConfig()
+			config.Loops = 2
+			term := NewTerminalFromText(tuffScreenText(60, 20), TerminalConfig{Width: 60, Height: 20})
+			engine := NewEngine(term, NewRng(3))
+			engine.Clock = NewVirtualClock(rate)
+			effect := NewTuffBaby(config)
 
-	playing := 0
-	runTuffBaby(t, effect, engine, func(int) {
-		if effect.phase == tuffPlaying {
-			playing++
-		}
-	})
+			playing := 0
+			seen := map[int]bool{}
+			runTuffBaby(t, effect, engine, func(int) {
+				if effect.phase != tuffPlaying {
+					return
+				}
+				playing++
+				seen[effect.frame] = true
+			})
 
-	// Two loops of fifty-five frames, each held six host frames, plus the one
-	// frame the phase spends deciding it is done.
-	want := config.Loops*tuffFrameCount*config.FrameHold + 1
-	if playing != want {
-		t.Errorf("the clip played over %d host frames, want %d", playing, want)
+			// Two loops of fifty-five frames, each held a tenth of a second,
+			// plus the one frame the phase spends deciding it is done.
+			hold := rate / int(tuffSourceFrameRate)
+			want := config.Loops*tuffFrameCount*hold + 1
+			if playing != want {
+				t.Errorf("the clip played over %d host frames, want %d", playing, want)
+			}
+			// The number that matters to a reader: how long the clip is on the
+			// screen. It has to be the same on every host.
+			seconds := float64(playing-1) / float64(rate)
+			if wantSeconds := float64(config.Loops*tuffFrameCount) / tuffSourceFrameRate; seconds != wantSeconds {
+				t.Errorf("the clip lasted %.3fs, want %.3fs", seconds, wantSeconds)
+			}
+			if len(seen) != tuffFrameCount {
+				t.Errorf("the run reached %d of the clip's frames, want all %d",
+					len(seen), tuffFrameCount)
+			}
+		})
 	}
 }
 
