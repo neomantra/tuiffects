@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>tuiffects — terminal text effects for Go</title>
 <link rel="stylesheet" href="./style.css">
 </head>
@@ -28,7 +29,7 @@
     <div class="terminal-frame"><div id="terminal"></div></div>
     <p class="hints">
       <kbd>←</kbd> <kbd>→</kbd> effect · <kbd>r</kbd> replay · <kbd>space</kbd> pause ·
-      click the terminal to give it the keyboard, or pick from the list.
+      click the terminal to give it the keyboard, or click an effect below.
     </p>
   </section>
 
@@ -61,7 +62,11 @@
   let current = '';
 
   function effectFromHash() {
-    return decodeURIComponent(location.hash.replace(/^#/, ''));
+    try {
+      return decodeURIComponent(location.hash.replace(/^#/, ''));
+    } catch (err) {
+      return '';
+    }
   }
 
   function renderCatalogue(entries) {
@@ -69,12 +74,15 @@
       catalogue.set(entry.name, entry);
       const item = document.createElement('li');
       item.id = 'effect-' + entry.name;
+      item.addEventListener('click', (event) => {
+        if (event.target.closest('a')) return; // the upstream link navigates; it does not select
+        select(entry.name);
+      });
 
       const name = document.createElement('button');
       name.type = 'button';
       name.className = 'effect-name';
       name.textContent = entry.name;
-      name.addEventListener('click', () => select(entry.name));
 
       const description = document.createElement('span');
       description.className = 'effect-description';
@@ -116,6 +124,8 @@
   }
 
   function select(name) {
+    if (!catalogue.has(name)) return;
+    if (effectFromHash() !== name) history.replaceState(null, '', '#' + name);
     if (typeof window.tuiffects_select === 'function') {
       window.tuiffects_select(name);
     }
@@ -126,11 +136,16 @@
     renderCatalogue(entries);
 
     const go = new Go();
+    const result = await WebAssembly.instantiateStreaming(fetch('./app.wasm'), go.importObject);
+    // Read the hash only now: a click during the download has updated it, and
+    // an unknown or malformed hash must never reach the program's flag parser.
     const wanted = effectFromHash();
     go.argv = ['tuiffects-demo', '--fps', String(FPS)];
-    if (wanted) go.argv.push(wanted);
-    const result = await WebAssembly.instantiateStreaming(fetch('./app.wasm'), go.importObject);
-    go.run(result.instance);
+    if (catalogue.has(wanted)) go.argv.push(wanted);
+    go.run(result.instance).then(() => {
+      nowName.textContent = 'the demo stopped';
+      nowDescription.textContent = '';
+    });
 
     const booba = new BoobaTerminal('terminal', { fontSize: 14, cursorBlink: false });
     booba.onTitleChange = (title) => { if (title) showCurrent(title); };
@@ -140,7 +155,11 @@
 
     window.addEventListener('hashchange', () => {
       const name = effectFromHash();
-      if (name && name !== current) select(name);
+      if (catalogue.has(name)) {
+        if (name !== current) select(name);
+      } else if (current) {
+        history.replaceState(null, '', '#' + current);
+      }
     });
   }
 

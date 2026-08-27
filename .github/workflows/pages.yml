@@ -9,7 +9,7 @@ permissions: {}
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -23,6 +23,9 @@ jobs:
         with:
           go-version-file: demo/go.mod
           cache-dependency-path: demo/go.sum
+
+      - name: Test the library and the demo
+        run: go test ./... && cd demo && go test ./...
 
       - name: Write the catalogue
         working-directory: demo

@@ -231,6 +231,20 @@ func TestSpaceDuringTheHoldReplaysAtOnce(t *testing.T) {
 	}
 }
 
+func TestResizeKeepsThePause(t *testing.T) {
+	m, _ := sized(t, New(Options{Effect: "randomsequence", Seed: 1}), 40, 12)
+	m = ticked(t, m, 5)
+	m, _ = pressed(t, m, tea.KeyPressMsg{Code: tea.KeySpace})
+	m, _ = sized(t, m, 60, 20)
+	if m.mode != modePaused {
+		t.Fatalf("resize left the mode at %v, want paused", m.mode)
+	}
+	frozen := m.frame
+	if m = ticked(t, m, 30); m.frame != frozen {
+		t.Fatal("a paused showroom animated after a resize")
+	}
+}
+
 func TestQuitKeysOnlyWhenHonoured(t *testing.T) {
 	quitKeys := []tea.KeyPressMsg{
 		{Code: 'q', Text: "q"},

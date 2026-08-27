@@ -106,7 +106,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		// A resize rebuilds at the new size; it must not undo a pause.
+		paused := m.mode == modePaused && m.err == nil
 		m.rebuild()
+		if paused && m.err == nil {
+			m.mode = modePaused
+		}
 		if m.ticking {
 			return m, nil
 		}
