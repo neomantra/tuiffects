@@ -77,6 +77,7 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
+  cursor: pointer;
 }
 #catalogue li.current { border-color: var(--accent); }
 
