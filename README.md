@@ -174,8 +174,10 @@ colour policy does, and what a finished port has to include.
   makes a run reproducible within this package, which is what the tests need.
 * Time is virtual by default. The engine's clock advances one frame's worth per
   `Update` rather than reading the machine, so an effect written in seconds
-  runs to the same number of frames every time. `NewRealClock` is there for a
-  host that would rather have wall time.
+  runs to the same number of frames every time. Set `Engine.Clock` to the rate
+  the host really paints at: `NewEngine` assumes sixty, and every effect
+  written in seconds runs at the wrong speed on a host that paints at anything
+  else. `NewRealClock` is there for a host that would rather have wall time.
 * No command line, no tty writer, no resize handling. The host owns the screen.
 * Thirty-five effects rather than thirty-seven. `beams` and `colorshift` are
   not ported.

@@ -62,10 +62,15 @@ type TuffBabyConfig struct {
 	PoseFrames int
 	// Loops is how many times the clip plays.
 	Loops int
-	// FrameHold is how many host frames each source frame is held for. The
-	// source runs at ten frames a second, so six holds it at its own speed
-	// against a host painting sixty.
-	FrameHold int
+	// SourceFrameRate is how many of the clip's frames play per second of
+	// engine time. The source runs at ten, so ten plays it at its own speed.
+	//
+	// It is read against Engine.Clock rather than against a count of host
+	// frames, so the clip lasts the same number of seconds whether the host
+	// paints sixty frames a second or two hundred and forty. A host that
+	// leaves the engine's clock at a rate it does not paint at gets the clip
+	// at the wrong speed, which is the clock's contract, not this field's.
+	SourceFrameRate float64
 
 	// FillerSymbols are the symbols appended characters wear when the screen
 	// carries no text of its own to recycle.
@@ -91,14 +96,14 @@ type TuffBabyConfig struct {
 // DefaultTuffBabyConfig is the effect as it is meant to be seen.
 func DefaultTuffBabyConfig() TuffBabyConfig {
 	return TuffBabyConfig{
-		GatherEase:    OutQuint,
-		GatherSpeed:   0.7,
-		HomeEase:      InOutQuad,
-		HomeSpeed:     0.6,
-		PoseFrames:    12,
-		Loops:         1,
-		FrameHold:     6,
-		FillerSymbols: []string{"t", "u", "f", "f"},
+		GatherEase:      OutQuint,
+		GatherSpeed:     0.7,
+		HomeEase:        InOutQuad,
+		HomeSpeed:       0.6,
+		PoseFrames:      12,
+		Loops:           1,
+		SourceFrameRate: tuffSourceFrameRate,
+		FillerSymbols:   []string{"t", "u", "f", "f"},
 		Tones: []Color{
 			MustParseColor("241f1c"),
 			MustParseColor("55402c"),
@@ -131,6 +136,20 @@ const (
 	tuffFlightLayer = 1
 	// tuffBoldFrom is the tone at which a cell is drawn bold. See tuffSetTone.
 	tuffBoldFrom = 4
+	// tuffSourceFrameRate is the rate the reference clip was reduced at, and
+	// so the rate SourceFrameRate defaults to.
+	tuffSourceFrameRate = 10.0
+	// tuffClockNudge is added to the clock reading before the clip's frame is
+	// worked out from it, so a boundary the clock has reached to within a
+	// rounding error counts as reached.
+	//
+	// A virtual clock adds its step once per frame, and after a few hundred
+	// frames that sum sits a few parts in ten thousand billion below the exact
+	// multiple: at sixty frames a second the sixth step lands on 0.0999999...
+	// rather than on 0.1, and without the nudge every source frame would be
+	// held one host frame too long. A microsecond is far larger than that
+	// drift and far smaller than any host's frame.
+	tuffClockNudge = 1e-6
 	// tuffCoverage is the share of a target cell's source block that has to
 	// be part of the picture before the cell is. Half keeps the silhouette
 	// where the source put it; averaging tone across the edge instead would
@@ -193,8 +212,13 @@ type TuffBaby struct {
 	phase         tuffPhase
 	poseRemaining int
 	frame         int
-	frameTick     int
-	loopsLeft     int
+
+	// playStart is the clock reading the clip started from, playFrames is how
+	// many source frames the whole run plays, counting every loop, and
+	// clipDone says the last of them has been reached.
+	playStart  float64
+	playFrames int
+	clipDone   bool
 }
 
 // NewTuffBaby builds the effect.
@@ -208,6 +232,12 @@ func (t *TuffBaby) Build(e *Engine) error {
 	if len(t.config.Tones) != tuffToneCount {
 		return fmt.Errorf("tuiffects: tuffbaby needs exactly %d tones, got %d",
 			tuffToneCount, len(t.config.Tones))
+	}
+	if e.Clock == nil {
+		// The clip is paced by the clock, and a clock that never moves would
+		// hold the first frame for ever. NewEngine installs one; this is for
+		// an engine assembled by hand.
+		e.Clock = NewVirtualClock(60)
 	}
 	cells := t.layout(e.Terminal.Canvas)
 	if len(cells) == 0 {
@@ -274,8 +304,9 @@ func (t *TuffBaby) Build(e *Engine) error {
 
 	t.phase = tuffGathering
 	t.poseRemaining = max(t.config.PoseFrames, 0)
-	t.frame, t.frameTick = 0, 0
-	t.loopsLeft = max(t.config.Loops, 0)
+	t.frame, t.playStart = 0, 0
+	t.playFrames = max(t.config.Loops, 0) * tuffFrameCount
+	t.clipDone = t.playFrames == 0
 	return nil
 }
 
@@ -712,15 +743,21 @@ func (t *TuffBaby) Advance(e *Engine) bool {
 		return true
 
 	case tuffPosing:
+		// The pose does not tick the engine, so it moves the clock on itself.
+		// Engine.Update does that for the phases that do tick it, and no
+		// Advance ever takes both paths, so the clock still counts exactly one
+		// frame per frame. See the note on play.
+		e.Clock.AdvanceFrame()
 		if t.poseRemaining > 0 {
 			t.poseRemaining--
 			return true
 		}
 		t.phase = tuffPlaying
+		t.playStart = e.Clock.Elapsed()
 		return true
 
 	case tuffPlaying:
-		if t.loopsLeft > 0 {
+		if !t.clipDone {
 			t.play(e)
 			return true
 		}
@@ -741,26 +778,41 @@ func (t *TuffBaby) Advance(e *Engine) bool {
 	}
 }
 
-// play advances the clip by one host frame, repainting only when the source
-// frame actually changes.
+// play moves the clip to wherever the clock has got to and repaints only when
+// the source frame actually changes.
+//
+// The clip is paced by the clock rather than by a count of host frames because
+// the source has a speed of its own: ten frames a second, whatever the host
+// paints at. Counting host frames holds each source frame for a fixed share of
+// however long a host frame lasts, so a host painting two hundred and forty
+// frames a second plays the clip four times too fast and the reader sees the
+// frames go by in a blur rather than sees the clip.
+//
+// Playback does not tick the engine either: every character has landed and
+// nothing is moving, only the tones change. So this moves the clock on itself,
+// one frame per Advance, exactly as Engine.Update would have. Nothing else on
+// this path calls AdvanceFrame, so the clock is not counted twice.
 func (t *TuffBaby) play(e *Engine) {
-	t.frameTick++
-	if t.frameTick < max(t.config.FrameHold, 1) {
+	e.Clock.AdvanceFrame()
+	hold := 1.0 / tuffSourceFrameRate
+	if t.config.SourceFrameRate > 0 {
+		hold = 1.0 / t.config.SourceFrameRate
+	}
+	index := int((e.Clock.Elapsed() - t.playStart + tuffClockNudge) / hold)
+	if index >= t.playFrames {
+		// Stop on the last frame of the clip rather than wrapping to the
+		// first, because that is the frame the ramp home leaves from.
+		t.frame = tuffFrameCount - 1
+		t.clipDone = true
 		return
 	}
-	t.frameTick = 0
-	t.frame++
-	if t.frame >= tuffFrameCount {
-		t.frame = 0
-		t.loopsLeft--
-		if t.loopsLeft == 0 {
-			// Stop on the last frame of the clip rather than wrapping to the
-			// first, because that is the frame the ramp home leaves from.
-			t.frame = tuffFrameCount - 1
-			return
-		}
+	// A host slower than the clip lands past more than one boundary in a
+	// frame. Taking the frame the clock is on rather than the next one drops
+	// the ones it went by, which is what keeps the clip at its own length.
+	if frame := index % tuffFrameCount; frame != t.frame {
+		t.frame = frame
+		t.show(e, frame)
 	}
-	t.show(e, t.frame)
 }
 
 // show paints one source frame: every cell the frame covers wears its tone,
