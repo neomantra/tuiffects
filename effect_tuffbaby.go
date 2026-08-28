@@ -57,6 +57,41 @@ type TuffBabyConfig struct {
 	HomeEase    Easing
 	HomeSpeed   float64
 
+	// ExitEase and ExitSpeed shape the surplus's flight off the screen.
+	//
+	// The surplus is not part of the picture and on a wide screen there is
+	// more of it than there is picture: 240 columns of text hands the picture
+	// about five thousand characters and leaves about six thousand over.
+	// Flown at the gather's speed and curve, that surplus takes three
+	// quarters of a second to clear, and it does not clear evenly. The
+	// gather eases out, so a character covers most of its distance at once
+	// and then creeps the last of the way; applied to a flight whose target
+	// is an edge, that puts every surplus character near an edge early and
+	// leaves it there. The left and right of the screen carry a readable
+	// band of text for the whole of that time, while the picture in the
+	// middle is still nothing anyone can recognise. The wider the terminal
+	// the further the far characters have to come and the longer the band
+	// lasts, which is why it reads as debris rather than as motion.
+	//
+	// So the surplus leaves at its own speed and, by default, without the
+	// gather's easing. The surplus is draining off the edges of the screen
+	// and a drain wants an even flux: at a constant rate nothing queues up
+	// at the door, and the band that forms is both thinner than the gather's
+	// and gone in a third of the time. The step per frame stays what the
+	// gather's own opening frames are, so it still reads as flight.
+	//
+	// It also flies the straight line rather than the gather's arc. The arc
+	// turns a character into the picture, which is what a character joining
+	// the picture is doing; a character leaving is only getting out of the
+	// way, and an arc there is a detour across the thing the reader is
+	// trying to watch form.
+	//
+	// A speed of zero or less falls back to GatherSpeed, GatherEase and the
+	// arc, so a config built by hand before these fields existed behaves
+	// exactly as it did.
+	ExitEase  Easing
+	ExitSpeed float64
+
 	// PoseFrames is how long the first frame of the clip is held before it
 	// starts playing, so a reader gets to see what the picture is.
 	PoseFrames int
@@ -98,6 +133,8 @@ func DefaultTuffBabyConfig() TuffBabyConfig {
 	return TuffBabyConfig{
 		GatherEase:      OutQuint,
 		GatherSpeed:     0.7,
+		ExitEase:        Linear,
+		ExitSpeed:       tuffExitSpeed,
 		HomeEase:        InOutQuad,
 		HomeSpeed:       0.6,
 		PoseFrames:      12,
@@ -136,6 +173,14 @@ const (
 	tuffFlightLayer = 1
 	// tuffBoldFrom is the tone at which a cell is drawn bold. See tuffSetTone.
 	tuffBoldFrom = 4
+	// tuffExitSpeed is the default ExitSpeed, in cells per frame. It is a
+	// little over four times GatherSpeed, which is what makes the surplus's
+	// longest flight on a 240 by 56 screen take about a third of a second
+	// rather than three quarters of one. It is not chosen to be as fast as
+	// possible: at this rate a surplus character steps about four cells a
+	// frame, which is what the gather's own first frames step, so the
+	// surplus still reads as flight rather than as glyphs blinking out.
+	tuffExitSpeed = 3.0
 	// tuffSourceFrameRate is the rate the reference clip was reduced at, and
 	// so the rate SourceFrameRate defaults to.
 	tuffSourceFrameRate = 10.0
@@ -276,7 +321,7 @@ func (t *TuffBaby) Build(e *Engine) error {
 		if err != nil {
 			return err
 		}
-		if err := t.buildFlights(ch, cell.coord, ch.InputCoord, finalColors[ch]); err != nil {
+		if err := t.buildFlights(ch, cell.coord, ch.InputCoord, finalColors[ch], false); err != nil {
 			return err
 		}
 		t.placed = append(t.placed, tuffPlacement{ch: ch, carried: carried, tones: cell.tones})
@@ -287,7 +332,7 @@ func (t *TuffBaby) Build(e *Engine) error {
 		if err := t.dressForExit(ch, finalColors[ch], dynamic); err != nil {
 			return err
 		}
-		if err := t.buildFlights(ch, exit, ch.InputCoord, finalColors[ch]); err != nil {
+		if err := t.buildFlights(ch, exit, ch.InputCoord, finalColors[ch], true); err != nil {
 			return err
 		}
 	}
@@ -619,15 +664,24 @@ func (t *TuffBaby) buildRamp(ch *Character, id string, from, to ColorPair, durat
 // buildFlights gives a character the path out to where the effect wants it and
 // the path back to where it came from. final is what it settles on once it is
 // home.
-func (t *TuffBaby) buildFlights(ch *Character, target, home Coord, final ColorPair) error {
+//
+// A character joining the picture turns into it: it flies at the gather's
+// speed along the gather's arc. A character leaving takes the straight line at
+// the exit's speed and easing. See ExitSpeed.
+func (t *TuffBaby) buildFlights(ch *Character, target, home Coord, final ColorPair, leaving bool) error {
+	speed, ease := t.config.GatherSpeed, t.config.GatherEase
+	arc := tuffArc(ch.InputCoord, target)
+	if leaving && t.config.ExitSpeed > 0 {
+		speed, ease, arc = t.config.ExitSpeed, t.config.ExitEase, nil
+	}
 	gather, err := ch.Motion.NewPath("gather", PathOptions{
-		Speed: t.config.GatherSpeed, Ease: t.config.GatherEase, HasEase: true,
+		Speed: speed, Ease: ease, HasEase: true,
 		Layer: tuffFlightLayer, HasLayer: true,
 	})
 	if err != nil {
 		return err
 	}
-	if _, err := gather.NewWaypoint(target, tuffArc(ch.InputCoord, target), ""); err != nil {
+	if _, err := gather.NewWaypoint(target, arc, ""); err != nil {
 		return err
 	}
 	back, err := ch.Motion.NewPath("home", PathOptions{
