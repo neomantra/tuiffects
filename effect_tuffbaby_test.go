@@ -1,6 +1,8 @@
 package tuiffects
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -547,4 +549,167 @@ func TestTuffBabyBoldsTheLightEnd(t *testing.T) {
 	if bold == 0 || plainInk == 0 {
 		t.Fatalf("the picture drew %d bold cells and %d plain, want both", bold, plainInk)
 	}
+}
+
+// tuffOffTheLine measures how far a coordinate has strayed from the straight
+// line between two others, rows counted double the way every other distance in
+// this package is.
+func tuffOffTheLine(p, from, to Coord) float64 {
+	px, py := float64(p.Column), 2*float64(p.Row)
+	ax, ay := float64(from.Column), 2*float64(from.Row)
+	dx, dy := float64(to.Column)-ax, 2*float64(to.Row)-ay
+	if dx == 0 && dy == 0 {
+		return math.Hypot(px-ax, py-ay)
+	}
+	along := math.Max(0, math.Min(1, ((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy)))
+	return math.Hypot(px-(ax+along*dx), py-(ay+along*dy))
+}
+
+// TestTuffBabySurplusLeavesAtItsOwnSpeed is the fix for what a wide screen
+// looked like while the picture was still forming.
+//
+// A 240 by 56 screen of text hands the picture about 5,800 characters and has
+// about 6,200 left over. Flown on the gather's own path options the surplus
+// took 46 frames to clear, and because the gather eases out it spent most of
+// them sitting near an edge having covered nearly all of its distance in the
+// first few: the left and right of the screen carried a readable band of text
+// for three quarters of a second, while the middle held nothing recognisable
+// yet. It read as debris rather than as motion, and the wider the terminal the
+// longer it lasted.
+//
+// The surplus now leaves on its own speed with no easing, by the straight line
+// rather than the gather's arc. This checks all three.
+//
+// Negative controls, each run and each restored:
+//
+//   - Flying the surplus at GatherSpeed and GatherEase, which is what
+//     buildFlights did before it was told which characters are leaving: 4,894
+//     of the 6,204 surplus characters are still standing past their deadline,
+//     3,469 of them off the straight line by up to 8 cells, frame 20 carries
+//     897 glyphs beside the picture rather than under 500, and 559 of the
+//     surplus are in the edge columns at once.
+//   - Keeping the exit's own speed and straight line but easing it out again
+//     (ExitEase: OutQuint): every character is gone on time, on its line, and
+//     frame 20 is quiet, and the band check alone fails at 536. That is the
+//     one this effect had wrong. An eased flight covers nearly all of its
+//     length at once and creeps the rest, so it is the easing rather than the
+//     speed that puts the surplus at the edge and holds it there, and only a
+//     count of what is standing at the edge sees it.
+//   - Keeping the exit's speed and easing but handing it tuffArc again: the
+//     line check alone fails, at 10 cells off.
+func TestTuffBabySurplusLeavesAtItsOwnSpeed(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{240, 56}, {80, 24}} {
+		t.Run(fmt.Sprintf("%dx%d", size.width, size.height), func(t *testing.T) {
+			term := NewTerminalFromText(tuffScreenText(size.width, size.height),
+				TerminalConfig{Width: size.width, Height: size.height})
+			engine := NewEngine(term, NewRng(7))
+			config := DefaultTuffBabyConfig()
+			effect := NewTuffBaby(config)
+			if err := effect.Build(engine); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			canvas := term.Canvas
+			if len(effect.parked) == 0 {
+				t.Fatal("a full screen produced no surplus, so nothing is being tested")
+			}
+
+			// A flight at a constant speed covers its length in length over
+			// speed frames, whatever the length. One frame of slack covers the
+			// rounding the path does when it works out its step count.
+			exit := make(map[*Character]Coord, len(effect.parked))
+			deadline := make(map[*Character]int, len(effect.parked))
+			for _, ch := range effect.parked {
+				at := tuffNearestExit(canvas, ch.InputCoord)
+				exit[ch] = at
+				deadline[ch] = roundHalfEven(
+					FindLengthOfLine(ch.InputCoord, at, true)/config.ExitSpeed) + 1
+			}
+
+			late := map[*Character]bool{}
+			wandered := map[*Character]bool{}
+			worst, outsideAt20, band := 0.0, 0, 0
+			for frame := 1; effect.phase == tuffGathering; frame++ {
+				if !effect.Advance(engine) {
+					break
+				}
+				standing := 0
+				for _, ch := range effect.parked {
+					at := ch.Motion.CurrentCoord
+					if !canvas.CoordIsInCanvas(at) {
+						continue
+					}
+					if frame > deadline[ch] {
+						late[ch] = true
+					}
+					off := tuffOffTheLine(at, ch.InputCoord, exit[ch])
+					if off > 1 {
+						wandered[ch] = true
+						worst = math.Max(worst, off)
+					}
+					if at.Column <= canvas.Left+7 || at.Column >= canvas.Right-7 {
+						standing++
+					}
+				}
+				band = max(band, standing)
+				if frame == 20 {
+					outsideAt20 = tuffGlyphsOutsideThePicture(effect, engine)
+				}
+				if frame > 400 {
+					t.Fatal("the gather never ended")
+				}
+			}
+
+			if len(late) > 0 {
+				t.Errorf("%d of %d surplus characters were still on the canvas past the frame "+
+					"their own length over ExitSpeed puts them off it", len(late), len(effect.parked))
+			}
+			if len(wandered) > 0 {
+				t.Errorf("%d of %d surplus characters strayed off the straight line to their "+
+					"exit, the worst by %.0f cells; the exit is meant to be the straight line",
+					len(wandered), len(effect.parked), worst)
+			}
+			if size.width != 240 {
+				return
+			}
+			// The rest is the screen the report was made on, where the band
+			// was seen. The picture is still forming at frame 20 whatever the
+			// surplus does; what has to be gone by then is everything beside
+			// it.
+			if outsideAt20 >= 500 {
+				t.Errorf("frame 20 carries %d glyphs outside the picture's columns, want under 500",
+					outsideAt20)
+			}
+			// How thick the band gets while it drains, counted over the eight
+			// columns at each edge the report described. A flight that eases
+			// out arrives near the edge at once and then creeps, so the
+			// surplus collects there whatever its speed; an even one does not.
+			if band >= 400 {
+				t.Errorf("%d surplus characters stood in the eight columns at an edge at once, "+
+					"want under 400", band)
+			}
+		})
+	}
+}
+
+// tuffGlyphsOutsideThePicture counts the visible glyphs standing in a column
+// the picture does not reach, which is the count the report was made on.
+func tuffGlyphsOutsideThePicture(effect *TuffBaby, e *Engine) int {
+	left, right := e.Terminal.Canvas.Right, e.Terminal.Canvas.Left
+	for _, cell := range effect.layout(e.Terminal.Canvas) {
+		left = min(left, cell.coord.Column)
+		right = max(right, cell.coord.Column)
+	}
+	count := 0
+	for _, row := range e.FrameRows() {
+		for column, visual := range row {
+			if column+1 >= left && column+1 <= right {
+				continue
+			}
+			if visual == nil || strings.TrimSpace(visual.Symbol) == "" {
+				continue
+			}
+			count++
+		}
+	}
+	return count
 }
